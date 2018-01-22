@@ -1,0 +1,156 @@
+
+# coding: utf-8
+
+# In[656]:
+
+
+class DynamicCircularBuffer:
+    
+    def __init__(self):
+        self._n = 8
+        self._buffer = [None]*self._n
+        self._begin = 0
+        self._end = 0
+        self._len = 0
+        
+    def __repr__(self):
+        if self._len == 0: return "[]"
+        elif self._len == 1: return "[{0}]".format(self._buffer[self._begin])
+        string = "["
+        for i in range(self._len-1):
+            string += "{0}, ".format(self._buffer[(self._begin+i)%self._n])
+        if self._end is not None: string += "{0}]".format(self._buffer[self._end])
+        else: string+= "]"
+        return string
+    
+    def __len__(self):
+        return self._len
+    
+    def __getitem__(self, index):
+        assert index < self._len, "Index out of range"
+        return self._buffer[(self._begin+index)%self._n]
+        
+    def push_front(self, val):
+        if self._buffer[self._begin] is None:
+            self._buffer[self._begin] = val
+            self._len += 1
+        elif self._len < self._n - 1:
+            self._len += 1
+            self._begin = (self._begin-1)%self._n
+            self._buffer[self._begin] = val
+        else:
+            new = [None]*(2*self._n)
+            new[0] = val
+            for i in range(self._len):
+                new[i+1] = self._buffer[(self._begin+i)%self._n]
+            self._buffer = new
+            self._n *= 2
+            self._len += 1
+            self._end = self._len - 1
+            self._begin = 0
+        
+    def pop_front(self):
+        if self._len == 0: return None
+        elif self._len == 1:
+            popped = self._buffer[self._begin]
+            self._buffer[self._begin] = None
+            self._len -= 1
+            return popped
+        elif self._len >= self._n/2 or self._n <= 8:
+            popped = self._buffer[self._begin]
+            self._buffer[self._begin] = None
+            self._begin=(self._begin+1)%self._n
+            self._len -= 1
+            return popped
+        else:
+            popped = self._buffer[self._begin]
+            new = [None]*(self._n//2)
+            for i in range(1, (self._end-self._begin)%self._n):
+                new[i-1] = self._buffer[(self._begin+i)%self._n]
+            self._buffer = new
+            self._n = self._n//2
+            self._len -= 1
+            self._end = self._len - 1
+            self._begin = 0
+            return popped
+    
+    def push_back(self, val):
+        if self._buffer[self._end] is None:
+            self._buffer[self._end] = val
+            self._len += 1
+        elif self._len < self._n - 1:
+            self._len += 1
+            self._end = (self._end+1)%self._n
+            self._buffer[self._end] = val
+        else:
+            new = [None]*(2*self._n)
+            for i in range(self._len):
+                new[i] = self._buffer[(self._begin+i)%self._n]
+            new[self._len] = val
+            self._buffer = new
+            self._n *= 2
+            self._len += 1
+            self._end = self._len - 1
+            self._begin = 0
+            
+    def pop_back(self):
+        if self._len == 0: return None
+        elif self._len == 1:
+            popped = self._buffer[self._end]
+            self._buffer[self._end] = None
+            self._len -= 1
+            return popped
+        elif self._len >= self._n/2 or self._n <= 8:
+            popped = self._buffer[self._end]
+            self._buffer[self._end] = None
+            self._end=(self._end-1)%self._n
+            self._len -= 1
+            return popped
+        else:
+            popped = self._buffer[self._end]
+            new = [None]*(self._n//2)
+            for i in range(self._len):
+                new[i] = self._buffer[(self._begin+i)%self._n]
+            self._buffer = new
+            self._n = self._n//2
+            self._len -= 1
+            self._end = self._len - 1
+            self._begin = 0
+            return popped
+
+
+# In[657]:
+
+
+DCB = DynamicCircularBuffer()
+
+
+# In[687]:
+
+
+
+
+
+# In[690]:
+
+
+
+
+
+# In[684]:
+
+
+
+
+
+# In[691]:
+
+
+
+
+
+# In[692]:
+
+
+
+
