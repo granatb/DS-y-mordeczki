@@ -1,5 +1,5 @@
 rnorm3 <- function(m, mu=0, sigma=1){
-  stopifnot(as.integer(m)==m, as.integer(mu)==mu, as.integer(sigma)==sigma)
+  stopifnot(as.integer(m)==m, m>0, is.numeric(mu), is.numeric(sigma))
   ceiling(m/2)->p
   x<-runif(p, 0, 1)
   y<-runif(p, 0, 1)
