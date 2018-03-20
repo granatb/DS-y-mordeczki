@@ -1,0 +1,11 @@
+rnorm3 <- function(m, mu=0, sigma=1){
+  stopifnot(as.integer(m)==m, as.integer(mu)==mu, as.integer(sigma)==sigma)
+  ceiling(m/2)->p
+  x<-runif(p, 0, 1)
+  y<-runif(p, 0, 1)
+  x1<-sqrt(-2*log(x))*cos(2*pi*y)
+  y1<-sqrt(-2*log(x))*sin(2*pi*y)
+  (unlist(list(x1, y1))[1:m])*sigma+mu
+  
+  
+}
