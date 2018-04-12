@@ -1,0 +1,675 @@
+\documentclass{article}
+\usepackage{polski}
+\usepackage[cp1250]{inputenc}
+\usepackage{graphicx}
+\usepackage{polski}
+\usepackage[lf]{berenis}
+\usepackage{etoolbox}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage[table]{xcolor}
+\usepackage{wrapfig}
+\usepackage{float}
+\usepackage{colortbl}
+\usepackage{pdflscape}
+\usepackage{tabu}
+\usepackage{threeparttable}
+\usepackage{threeparttablex}
+\usepackage[normalem]{ulem}
+\usepackage{makecell}
+
+<<setup, echo=FALSE, warning=FALSE>>=
+suppressMessages(library(xtable, warn.conflicts = FALSE, quietly=TRUE))
+suppressMessages(library(sqldf, warn.conflicts = FALSE, quietly=TRUE))
+suppressMessages(library(dplyr, warn.conflicts = FALSE, quietly=TRUE))
+suppressMessages(library(data.table, warn.conflicts = FALSE, quietly=TRUE))
+suppressMessages(library(kableExtra, warn.conflicts = FALSE, quietly=TRUE))
+suppressMessages(library(knitr, warn.conflicts = FALSE, quietly=TRUE))
+suppressMessages(library(microbenchmark, warn.conflicts = FALSE, quietly=TRUE))
+suppressMessages(library(bindrcpp, warn.conflicts = FALSE, quietly=TRUE))
+suppressMessages(library(ggplot2, warn.conflicts = FALSE, quietly=TRUE))
+Tags <- read.csv("Tags.csv")
+Badges <- read.csv("Badges.csv")
+Comments <- read.csv("Comments.csv")
+PostLinks <- read.csv("PostLinks.csv")
+Posts <- read.csv("Posts.csv")
+Users <- read.csv("Users.csv")
+Votes <- read.csv("Votes.csv")
+Tagst <- as.data.table(Tags)
+Badgest <- as.data.table(Badges)
+Commentst <- as.data.table(Comments)
+PostLinkst <- as.data.table(PostLinks)
+Postst <- as.data.table(Posts)
+Userst <- as.data.table(Users)
+Votest <- as.data.table(Votes)
+@
+
+
+
+\begin{document}
+\title{ \Huge Raport z pracy domowej nr 2. }
+\author{Szymon Maksymiuk \\
+Wydzia³ Matematyki i Nauk Informacyjnych \\
+Politechnika Warszawska \\
+Przetwarzanie danych ustrukturyzowanych\\
+II semestr}
+\date{Wiosna 2018}
+\maketitle
+\newpage
+\tableofcontents
+\newpage
+
+\section{Wstêp}
+Na wstêpie chcia³ybm zaznaczyæ, ¿e rozwi¹nie zadanych problemów pokaza³o mi jak wiele rzeczy mo¿na zrobiæ korzystaj¹c z jêzyka \textbf{R}. Zdajê sobie sprawê, ¿e prezentowane przeze mnie rozwi¹zanie w wielu przypadkach nie bêd¹ oszczêdne je¿eli chodzi o pamiêæ(du¿o zmiennych pomocnicznych oraz operacji przypisañ) lecz ma to na celu uczynienie mojego kodu bardziej czytelnym z racji~, ¿e~nie robiê tego tylko i~wy³¹cznie dla siebie lecz musi to jeszcze zostaæ sprawdzone. Wyniki dzia³ania poleceñ bêdê prezenotwa³ w formie tabeli na zmianê, tylko dla jednego z trzech wywo³añ. W~pozosta³ych przypadkach bêdê po porstu sprwadza³ za pomoc¹ funkcji all() czy s¹ one to¿same. Dodatkowo zawsze poka¿e tabelê z \tegtbf{sqldf}. Chcia³bym równie¿ zaznaczyæ, ¿e w~miejscach gdzie wykonuj¹ zadanie za pomoc¹ innych pakietów lecz u¿ywam funkcji bardzo podobnych do bazowych mam pe³n¹ œwiadomoœæ, ¿e s¹ one przez dany pakiet przeci¹¿ane. Zapraszam do lektury.
+\section{Zadanie 1.}
+\subsection{sqldf}
+<<>>=
+sql1<-sqldf("SELECT Tags.TagName, Tags.Count, Posts.OwnerUserId,
+Users.Age, Users.Location, Users.DisplayName
+FROM Tags
+JOIN Posts ON Posts.Id=Tags.WikiPostId
+JOIN Users ON Users.AccountId=Posts.OwnerUserId
+WHERE OwnerUserId != -1
+ORDER BY Count DESC LIMIT 10")
+
+kable(sql1, format = "latex", align="c")%>%
+kable_styling(latex_options = c("scale_down"))
+
+@
+\subsection{Funkcje bazowe}
+<<>>=
+x1 <- merge(Tags, Posts, by.x='WikiPostId', by.y='Id')
+x1 <- merge(x1, Users, by.x='OwnerUserId', by.y='AccountId')
+x1 <- x1[c("TagName", "Count", "OwnerUserId", "Age", "Location",
+           "DisplayName")]
+x1<-x1[x1[,3]!=-1,]
+x1<-x1[order(unlist(x1[,2]), decreasing = TRUE),][1:10,]
+all(x1[ ,]==sql1[ ,])
+kable(x1, format = "latex", align="c")%>%
+kable_styling(latex_options = c("scale_down"))
+
+@
+\subsection{dplyr}
+<<>>=
+dp1<- inner_join(Tags, Posts, by=c("WikiPostId" = "Id"))
+dp1<- inner_join(dp1, Users, by=c("OwnerUserId" = "AccountId"))
+dp1<- select(dp1, TagName, Count, OwnerUserId, Age, Location,
+             DisplayName)
+dp1<-filter(dp1, OwnerUserId != -1)
+dp1<-arrange(dp1, desc(Count))
+dp1<-slice(dp1, 1:10)
+all(dp1[ ,]==sql1[ ,])
+@
+\subsection{data.table}
+
+<<>>=
+
+dt1 <- merge(Tagst, Postst, by.x='WikiPostId', by.y='Id')
+dt1 <- merge(dt1, Userst, by.x='OwnerUserId', by.y='AccountId')
+dt1 <- dt1[OwnerUserId!=-1]
+dt1 <- dt1[, .(TagName, Count, OwnerUserId, Age, Location,
+               DisplayName)]
+dt1 <- dt1[order(-Count)][1:10]
+all(as.data.frame(dt1)[ ,]==sql1[ ,])
+@
+\subsection{microbenchmark}
+<<echo=FALSE>>=
+m<-microbenchmark::microbenchmark(
+sqldf={sqldf("SELECT Tags.TagName, Tags.Count, Posts.OwnerUserId, 
+Users.Age, Users.Location, Users.DisplayName
+FROM Tags
+JOIN Posts ON Posts.Id=Tags.WikiPostId
+JOIN Users ON Users.AccountId=Posts.OwnerUserId
+WHERE OwnerUserId != -1
+ORDER BY Count DESC LIMIT 10")},
+base={x1 <- merge(Tags, Posts, by.x='WikiPostId', by.y='Id')
+x1 <- merge(x1, Users, by.x='OwnerUserId', by.y='AccountId')
+x1 <- x1[c("TagName", "Count", "OwnerUserId", "Age", "Location",
+           "DisplayName")]
+x1<-x1[x1[,3]!=-1,]
+x1<-x1[order(unlist(x1[,2]), decreasing = TRUE),][1:10,]},
+dplyr={dp1<- inner_join(Tags, Posts, by=c("WikiPostId" = "Id"))
+dp1<- inner_join(dp1, Users, by=c("OwnerUserId" = "AccountId"))
+dp1<- select(dp1, TagName, Count, OwnerUserId, Age, Location, DisplayName)
+dp1<-filter(dp1, OwnerUserId != -1)
+dp1<-arrange(dp1, desc(Count))
+dp1<-slice(dp1, 1:10)},
+data.table={Tagst <- data.table(Tags)
+dt1 <- merge(Tagst, Postst, by.x='WikiPostId', by.y='Id')
+dt1 <- merge(dt1, Userst, by.x='OwnerUserId', by.y='AccountId')
+dt1 <- dt1[OwnerUserId!=-1]
+dt1 <- dt1[, .(TagName, Count, OwnerUserId, Age, Location,
+               DisplayName)]
+dt1 <- dt1[order(-Count)][1:10]}
+)
+print(m, signif=4)
+autoplot.microbenchmark(m)
+
+@
+\noindent
+Jak widzimy, czy to bezpoœrednio z tabelki, czy z wykresu, najszybsze jest rozwi¹zanie pochodz¹ce z pakietu \textbf{data.table}. Ta zale¿noœæ bêdzie towarzyszyæ nam ju¿ do koñca zadania.
+
+\section{Zadanie 2.}
+\subsection{sqldf}
+<<>>=
+sql2 <- sqldf("SELECT PostId, COUNT(*) AS UpVotes FROM Votes 
+              WHERE VoteTypeId=2 GROUP BY PostId")
+kable(sql2[1:15,], format="latex", align="c")%>%
+kable_styling(latex_options = c("scale_down"))
+@
+\subsection{Funkcje bazowe}
+<<>>=
+x2 <- as.data.frame(table(Votes[Votes$VoteTypeId == 2, "PostId"]))
+names(x2) <- c("PostId", "UpVotes")
+all(x2[ ,]==sql2[ ,])
+@
+\subsection{dplyr}
+<<>>=
+dp2 <-filter(Votes, VoteTypeId == 2)
+dp2 <-summarise(group_by(dp2, PostId) ,n = n())
+dp2 <- select(dp2, PostId, UpVotes=n)
+all(dp2[ ,]==sql2[ ,])
+kable(dp2[1:15,], format="latex", align="c")%>%
+kable_styling(latex_options = c("scale_down"))
+@
+\subsection{data.table}
+<<>>=
+dt2 <- Votest[VoteTypeId==2]
+dt2 <- dt2[, .(UpVotes=.N), by = PostId]
+dt2 <- dt2[order(PostId)]
+all(as.data.frame(dt2)[ ,]==sql2[ ,])
+@
+\subsection{microbenchmark}
+<<echo=FALSE>>=
+m<-microbenchmark::microbenchmark(
+sqldf={sqldf("SELECT PostId, COUNT(*) AS UpVotes FROM Votes 
+              WHERE VoteTypeId=2 GROUP BY PostId")},
+base={x2 <- as.data.frame(table(Votes[Votes$VoteTypeId == 2, "PostId"]))
+names(x2) <- c("PostId", "UpVotes")},
+dplyr={dp2 <-filter(Votes, VoteTypeId == 2)
+dp2 <-summarise(group_by(dp2, PostId) ,n = n())
+dp2 <- select(dp2, PostId, UpVotes=n)},
+data.table={dt2 <- Votest[VoteTypeId==2]
+dt2 <- dt2[, .(UpVotes=.N), by = PostId]
+dt2 <- dt2[order(PostId)]}
+)
+print(m, signif=4)
+autoplot.microbenchmark(m)
+@
+\noindent
+
+Jak wczeœniej wspomnia³em \textbf{data.table} ponownie zadeklasowa³ rywali. Warto jednak w tym miejscu zauwa¿yæ, ¿e funkcje bazowe, które w poprzednim podunkcie by³y nieznacznie szybsze od pakiety \textbf{dplyr} w tym wypadku przegra³y z nim ponad trzykrotnie! Ciekawa bêdzie oberwacja jak poradz¹ sobie z przysz³ymi zadaniami.
+\section{Zadanie 3.}
+\subsection{sqldf}
+<<>>=
+sql3 <- sqldf("SELECT Title, Score, ViewCount, FavoriteCount FROM Posts
+WHERE PostTypeId=1 AND FavoriteCount >= 25 AND ViewCount>=10000")
+kable(sql3, format = "latex", align="c")%>%
+kable_styling(latex_options = c("scale_down"))
+@
+\subsection{Funkcje bazowe}
+<<>>=
+x3 <- Posts[Posts$PostTypeId ==1 &  Posts$FavoriteCount >= 25 & 
+              Posts$ViewCount >= 10000, c("Title", "Score", "ViewCount", 
+                                          "FavoriteCount"),drop=FALSE] -> x 
+x3 <- na.omit(x3)
+rownames(x3)< NULL
+all(x3[ ,]==sql3[ ,])
+@
+\subsection{dplyr}
+<<>>=
+dp3 <- filter(Posts, PostTypeId==1, FavoriteCount >=25, ViewCount >= 10000)
+dp3 <- select(dp3, Title, Score, ViewCount, FavoriteCount)
+all(dp3[ ,]==sql3[ ,])
+@
+\subsection{data.table}
+<<>>=
+dt3 <- Postst[PostTypeId==1 & FavoriteCount >=25 & ViewCount >= 10000]
+dt3 <- dt3[, .(Title, Score, ViewCount, FavoriteCount)]
+all(as.data.frame(dt3)[ ,]==sql3[ ,])
+kable(as.data.frame(dt3), format="latex", align="c")%>%
+kable_styling(latex_options = c("scale_down"))
+
+@
+\subsection{micobenchmark}
+<<echo=FALSE>>=
+m<-microbenchmark::microbenchmark(
+sqldf={sqldf("SELECT Title, Score, ViewCount, FavoriteCount FROM Posts
+WHERE PostTypeId=1 AND FavoriteCount >= 25 AND ViewCount>=10000")},
+base={x3 <- Posts[Posts$PostTypeId ==1 &  Posts$FavoriteCount >= 25 & Posts$ViewCount >= 10000, c("Title", "Score", "ViewCount", "FavoriteCount"),drop=FALSE] -> x 
+x3 <- na.omit(x3)
+rownames(x3)< NULL},
+dplyr={dp3 <- filter(Posts, PostTypeId==1, FavoriteCount >=25, ViewCount >= 10000)
+dp3 <- select(dp3, Title, Score, ViewCount, FavoriteCount)},
+data.table={dt3 <- Postst[PostTypeId==1 & FavoriteCount >=25 & ViewCount >= 10000]
+dt3 <- dt3[, .(Title, Score, ViewCount, FavoriteCount)]}
+)
+print(m, signif=4)
+autoplot.microbenchmark(m)
+@
+\noindent
+Niestety tutaj wyniki s¹ zbyt male by dokonaæ jakiegokolwiek porównania. Oczywiœcie wyj¹tkiem jest \textbf{sqldf} lecz ten pakiet jest ju¿ ca³kowicie poza konkursem.
+\section{Zadnie 4.}
+\subsection{sqldf}
+<<>>=
+sql4 <- sqldf("SELECT Posts.Title, RelatedTab.NumLinks FROM
+(SELECT RelatedPostId AS PostId, COUNT(*) AS NumLinks
+FROM PostLinks GROUP BY RelatedPostId) AS RelatedTab
+JOIN Posts ON RelatedTab.PostId=Posts.Id
+WHERE Posts.PostTypeId=1
+ORDER BY NumLinks DESC LIMIT 10")
+kable(sql4, format="latex", align="c")%>%
+kable_styling(latex_options = c("scale_down"))
+@
+\subsection{Funkcje bazowe}
+<<>>=
+x4 <- as.data.frame(table(PostLinks["RelatedPostId"]))
+colnames(x4)<- c("PostId", "NumLinks")
+x4 <- merge(x4, Posts, by.x='PostId', by.y='Id')
+x4 <- x4[(unlist(x4[,"PostTypeId"])==1),]
+x4 <- x4[,c("Title", "NumLinks")]
+x4 <-x4[order(unlist(x4[,"NumLinks"]), decreasing = TRUE),][1:10,]
+rownames(x4)<-NULL
+all(x4[ ,]==sql4[ ,])
+kable(x4, format="latex", align="c")%>%
+kable_styling(latex_options = c("scale_down"))
+@
+\subsection{dplyr}
+<<>>=
+dp4 <-summarise(group_by(PostLinks, RelatedPostId) ,n = n())
+dp4 <- select(dp4, PostId=RelatedPostId, NumLinks=n)
+dp4 <- inner_join(dp4, Posts, by=c("PostId" = "Id"))
+dp4 <- filter(dp4, PostTypeId==1)
+dp4 <- select(dp4, Title, NumLinks)
+dp4<-arrange(dp4, desc(NumLinks))
+dp4<-slice(dp4, 1:10)
+all(dp4[ ,]==sql4[ ,])
+@
+\subsection{data.table}
+<<>>==
+dt4 <- PostLinkst[, .(NumLinks=.N), by = RelatedPostId]
+dt4 <- merge(dt4, Postst, by.x='RelatedPostId', by.y='Id')
+dt4 <- dt4[PostTypeId==1]
+dt4 <- dt4[order(-NumLinks)]
+dt4 <- dt4[, .(Title, NumLinks)][1:10]
+all(as.data.frame(dp4)[ ,]==sql4[ ,])
+@
+\subsection{microbenchmark}
+<<echo=FALSE>>=
+m<-microbenchmark::microbenchmark(
+sqldf={sql4 <- sqldf("SELECT Posts.Title, RelatedTab.NumLinks FROM
+(SELECT RelatedPostId AS PostId, COUNT(*) AS NumLinks
+FROM PostLinks GROUP BY RelatedPostId) AS RelatedTab
+JOIN Posts ON RelatedTab.PostId=Posts.Id
+WHERE Posts.PostTypeId=1
+ORDER BY NumLinks DESC LIMIT 10")},
+base={x4 <- as.data.frame(table(PostLinks["RelatedPostId"]))
+colnames(x4)<- c("PostId", "NumLinks")
+x4 <- merge(x4, Posts, by.x='PostId', by.y='Id')
+x4 <- x4[(unlist(x4[,"PostTypeId"])==1),]
+x4 <- x4[,c("Title", "NumLinks")]
+x4 <-x4[order(unlist(x4[,"NumLinks"]), decreasing = TRUE),][1:10,]
+rownames(x4)<-1:10},
+dplyr={dp4 <-summarise(group_by(PostLinks, RelatedPostId) ,n = n())
+dp4 <- select(dp4, PostId=RelatedPostId, NumLinks=n)
+dp4 <- inner_join(dp4, Posts, by=c("PostId" = "Id"))
+dp4 <- filter(dp4, PostTypeId==1)
+dp4 <- select(dp4, Title, NumLinks)
+dp4<-arrange(dp4, desc(NumLinks))
+dp4<-slice(dp4, 1:10)},
+data.table={dt4 <- PostLinkst[, .(NumLinks=.N), by = RelatedPostId]
+dt4 <- merge(dt4, Postst, by.x='RelatedPostId', by.y='Id')
+dt4 <- dt4[PostTypeId==1]
+dt4 <- dt4[order(-NumLinks)]
+dt4 <- dt4[, .(Title, NumLinks)][1:10]}
+)
+print(m, signif=4)
+autoplot.microbenchmark(m)
+@
+\noindent
+Ponownie nie trudno jest zauwa¿yæ klaruj¹c¹ siê zale¿noœæ. \textbf{data.table} bezkonkurencyjnie wrêcz "mia¿d¿y" konkurentów. \texbf{dplyr} ponownie okaza³ siê szybszy ni¿ funkcje bazowe o \textbf{sqldf} nawet nie wspominaj¹c.
+\section{Zadanie 5}
+\subsection{sqldf}
+<<>>=
+sql5 <- sqldf("SELECT UpVotesTab.PostId, UpVotesTab.UpVotes, 
+IFNULL(DownVotesTab.DownVotes, 0) AS DownVotes
+FROM
+              (
+SELECT PostId, COUNT(*) AS UpVotes FROM Votes
+              WHERE VoteTypeId=2 GROUP BY PostId
+) AS UpVotesTab
+              LEFT JOIN
+              (
+              SELECT PostId, COUNT(*) AS DownVotes FROM Votes
+              WHERE VoteTypeId=3 GROUP BY PostId
+              ) AS DownVotesTab
+              ON UpVotesTab.PostId=DownVotesTab.PostId")
+kable(sql5[1:15,], format="latex", align="c")%>%
+kable_styling(latex_options = c("scale_down"))
+@
+\subsection{Funkcje bazowe}
+<<>>=
+pom1 <- as.data.frame(table(Votes[Votes$VoteTypeId == 2, "PostId"]))
+names(pom1) <- c("PostId", "UpVotes")
+pom2 <- as.data.frame(table(Votes[Votes$VoteTypeId == 3, "PostId"]))
+names(pom2) <- c("PostId", "DownVotes")
+pom<-merge(pom1, pom2, by.x="PostId", all.x=TRUE)
+pom["DownVotes"][is.na(pom["DownVotes"])] <- 0
+x5<-pom
+colnames(x5)<-c("PostId", "UpVotes", "DownVotes")
+all(x5[ ,]==sql5[ ,])
+@
+\subsection{dplyr}
+<<>>=
+dp_pom <-filter(Votes, VoteTypeId == 2)
+dp_pom <-summarise(group_by(dp_pom, PostId) ,n = n())
+dp_pom <- select(dp_pom, PostId, UpVotes=n)
+dp_pom1 <-filter(Votes, VoteTypeId == 3)
+dp_pom1 <-summarise(group_by(dp_pom1, PostId) ,n = n())
+dp_pom1 <- select(dp_pom1, PostId, DownVotes=n)
+dp5 <- left_join(dp_pom, dp_pom1, c("PostId"))
+dp5["DownVotes"][is.na(dp5["DownVotes"])] <- 0
+all(dp5[ ,]==sql5[ ,])
+kable(dp5[1:15,], format="latex", align="c")%>%
+kable_styling(latex_options = c("scale_down"))
+@
+\subsection{data.table}
+<<>>=
+pom_dt <- Votest[VoteTypeId==2]
+pom_dt <- pom_dt[, .(UpVotes=.N), by = PostId]
+pom_dt1 <- Votest[VoteTypeId==3]
+pom_dt1 <- pom_dt1[, .(DownVotes=.N), by = PostId]
+dt5<-merge(pom_dt, pom_dt1, by.x="PostId", by.y = "PostId", all.x=TRUE)
+dt5[is.na(DownVotes), DownVotes:=0]
+all(as.data.frame(dp5)[ ,]==sql5[ ,])
+@
+\subsection{microbenchmark}
+<<echo=FALSE>>=
+m<-microbenchmark::microbenchmark(
+sqldf={sql5 <- sqldf("SELECT UpVotesTab.PostId, UpVotesTab.UpVotes, 
+IFNULL(DownVotesTab.DownVotes, 0) AS DownVotes
+FROM
+              (
+SELECT PostId, COUNT(*) AS UpVotes FROM Votes
+              WHERE VoteTypeId=2 GROUP BY PostId
+) AS UpVotesTab
+              LEFT JOIN
+              (
+              SELECT PostId, COUNT(*) AS DownVotes FROM Votes
+              WHERE VoteTypeId=3 GROUP BY PostId
+              ) AS DownVotesTab
+              ON UpVotesTab.PostId=DownVotesTab.PostId")},
+base={pom1 <- as.data.frame(table(Votes[Votes$VoteTypeId == 2, "PostId"]))
+names(pom1) <- c("PostId", "UpVotes")
+pom2 <- as.data.frame(table(Votes[Votes$VoteTypeId == 3, "PostId"]))
+names(pom2) <- c("PostId", "DownVotes")
+pom<-merge(pom1, pom2, by.x="PostId", all.x=TRUE)
+pom["DownVotes"][is.na(pom["DownVotes"])] <- 0
+x5<-pom
+colnames(x5)<-c("PostId", "UpVotes", "DownVotes")},
+dplyr={dp_pom <-filter(Votes, VoteTypeId == 2)
+dp_pom <-summarise(group_by(dp_pom, PostId) ,n = n())
+dp_pom <- select(dp_pom, PostId, UpVotes=n)
+
+
+dp_pom1 <-filter(Votes, VoteTypeId == 3)
+dp_pom1 <-summarise(group_by(dp_pom1, PostId) ,n = n())
+dp_pom1 <- select(dp_pom1, PostId, DownVotes=n)
+
+dp5 <- left_join(dp_pom, dp_pom1, c("PostId"))
+dp5["DownVotes"][is.na(dp5["DownVotes"])] <- 0},
+data.table={pom_dt <- Votest[VoteTypeId==2]
+pom_dt <- pom_dt[, .(UpVotes=.N), by = PostId]
+pom_dt1 <- Votest[VoteTypeId==3]
+pom_dt1 <- pom_dt1[, .(DownVotes=.N), by = PostId]
+dt5<-merge(pom_dt, pom_dt1, by.x="PostId", by.y = "PostId", all.x=TRUE)
+dt5[is.na(DownVotes), DownVotes:=0]}
+)
+print(m, signif=4)
+autoplot.microbenchmark(m)
+@
+\noindent
+Tym razem \textbf{data.table} jest "tylko" oko³o dwa razy szybszy, \textbf{dplyr} goni, lecz nie odskakuje za daleko funkcjom bazowym, które wci¹¿ s¹ oko³o 3 razy wolnijesze.
+\section{Zadanie 6.}
+\subsection{sqldf}
+<<>>=
+sql6<-sqldf("SELECT UpVotesTab.*, Posts.Title FROM
+(
+  SELECT PostId, COUNT(*) AS UpVotes FROM Votes WHERE VoteTypeId=2 GROUP BY PostId
+) AS UpVotesTab
+  JOIN Posts ON UpVotesTab.PostId=Posts.Id
+  WHERE Posts.PostTypeId=1
+ORDER BY UpVotesTab.UpVotes DESC LIMIT 10
+  ")
+kable(sql6, format="latex", align="c")%>%
+kable_styling(latex_options = c("scale_down"))
+@
+\subsection{Funkcje bazowe}
+<<>>=
+pom1 <- as.data.frame(table(Votes[Votes$VoteTypeId == 2, "PostId"]))
+names(pom1) <- c("PostId", "UpVotes")
+pom2 <- Posts[(unlist(Posts[,"PostTypeId"])==1),]
+x6 <- merge(pom1, pom2, by.x = "PostId", by.y = "Id")
+x6<-x6[c("PostId", "UpVotes", "Title")]
+x6 <-x6[order(unlist(x6[,2]), decreasing = TRUE),][1:10,]
+rownames(x6)<-NULL
+all(x6[ ,]==sql6[ ,])
+@
+\subsection{dplyr}
+<<>>=
+dp_pom <-filter(Votes, VoteTypeId == 2)
+dp_pom <-summarise(group_by(dp_pom, PostId) ,n = n())
+dp_pom <- select(dp_pom, PostId, UpVotes=n)
+dp_pom1 <- filter(Posts, PostTypeId==1)
+dp6 <- inner_join(dp_pom, dp_pom1, c("PostId"="Id"))
+dp6 <- select(dp6, PostId, UpVotes, Title)
+dp6<-arrange(dp6, desc(UpVotes))
+dp6<-slice(dp6, 1:10)
+all(dp6[ ,]==sql6[ ,])
+@
+\subsection{data.table}
+<<>>=
+pom_dt <- Votest[VoteTypeId==2]
+pom_dt <- pom_dt[, .(UpVotes=.N), by = PostId]
+pom_dt1 <- Postst[PostTypeId==1]
+dt6 <- merge(pom_dt, pom_dt1, by.x = "PostId", by.y = "Id")
+dt6 <- dt6[, .(PostId, UpVotes, Title)]
+dt6 <- dt6[order(-UpVotes)][1:10]
+all(as.data.frame(dt6)[ ,]==sql6[ ,])
+kable(as.data.frame(dt6), format="latex", align="c")%>%
+kable_styling(latex_options = c("scale_down"))
+@
+\subsection{microbenchmark}
+<<echo=FALSE>>=
+m<-microbenchmark::microbenchmark(
+sqldf={sql6<-sqldf("SELECT UpVotesTab.*, Posts.Title FROM
+(
+  SELECT PostId, COUNT(*) AS UpVotes FROM Votes WHERE VoteTypeId=2 GROUP BY PostId
+) AS UpVotesTab
+  JOIN Posts ON UpVotesTab.PostId=Posts.Id
+  WHERE Posts.PostTypeId=1
+ORDER BY UpVotesTab.UpVotes DESC LIMIT 10
+  ")},
+base={pom1 <- as.data.frame(table(Votes[Votes$VoteTypeId == 2, "PostId"]))
+names(pom1) <- c("PostId", "UpVotes")
+pom2 <- Posts[(unlist(Posts[,"PostTypeId"])==1),]
+x6 <- merge(pom1, pom2, by.x = "PostId", by.y = "Id")
+x6<-x6[c("PostId", "UpVotes", "Title")]
+x6 <-x6[order(unlist(x6[,2]), decreasing = TRUE),][1:10,]
+rownames(x6)<-NULL},
+dplyr={dp_pom <-filter(Votes, VoteTypeId == 2)
+dp_pom <-summarise(group_by(dp_pom, PostId) ,n = n())
+dp_pom <- select(dp_pom, PostId, UpVotes=n)
+dp_pom1 <- filter(Posts, PostTypeId==1)
+dp6 <- inner_join(dp_pom, dp_pom1, c("PostId"="Id"))
+dp6 <- select(dp6, PostId, UpVotes, Title)
+dp6<-arrange(dp6, desc(UpVotes))
+dp6<-slice(dp6, 1:10)},
+data.table={pom_dt <- Votest[VoteTypeId==2]
+pom_dt <- pom_dt[, .(UpVotes=.N), by = PostId]
+pom_dt1 <- Postst[PostTypeId==1]
+dt6 <- merge(pom_dt, pom_dt1, by.x = "PostId", by.y = "Id")
+dt6 <- dt6[, .(PostId, UpVotes, Title)]
+dt6 <- dt6[order(-UpVotes)][1:10]}
+)
+print(m, signif=4)
+autoplot.microbenchmark(m)
+@
+\noindent
+\textbf{dplyr} kolejny raz zmniejszy³ dystans do \textbf{data.table}, tym razem jest wolnijeszy jedynie oko³o 1,5 raza. Odskoczy³ tym samym funkcjom bazowym od których jest ju¿ szybszy ponad 4 razy!
+\section{Zadanie 7}
+\subsection{sqldf}
+<<>>=
+sql7<-sqldf("SELECT PostId, UpVotes-DownVotes AS Votes FROM (
+SELECT UpVotesTab.PostId, UpVotesTab.UpVotes, 
+IFNULL(DownVotesTab.DownVotes, 0) AS DownVotes
+            FROM
+            (
+            SELECT PostId, COUNT(*) AS UpVotes FROM Votes
+            WHERE VoteTypeId=2 GROUP BY PostId
+            ) AS UpVotesTab
+            LEFT JOIN
+            (
+            SELECT PostId, COUNT(*) AS DownVotes
+            FROM Votes WHERE VoteTypeId=3 GROUP BY PostId
+            ) AS DownVotesTab
+            ON UpVotesTab.PostId=DownVotesTab.PostId
+            UNION
+            SELECT DownVotesTab.PostId, 
+IFNULL(UpVotesTab.UpVotes, 0) AS UpVotes, DownVotesTab.DownVotes
+            FROM
+            (
+            SELECT PostId, COUNT(*) AS DownVotes FROM Votes
+            WHERE VoteTypeId=3 GROUP BY PostId
+            ) AS DownVotesTab
+            LEFT JOIN
+            (
+            SELECT PostId, COUNT(*) AS UpVotes FROM Votes
+            WHERE VoteTypeId=2 GROUP BY PostId
+            ) AS UpVotesTab
+            ON DownVotesTab.PostId=UpVotesTab.PostId)
+")
+kable(sql7[1:15,], format="latex", align="c")%>%
+kable_styling(latex_options = c("scale_down"))
+@
+\subsection{Funkcje bazowe}
+<<>>=
+pom1 <- as.data.frame(table(Votes[Votes$VoteTypeId == 2, "PostId"]))
+names(pom1) <- c("PostId", "UpVotes")
+pom2 <- as.data.frame(table(Votes[Votes$VoteTypeId == 3, "PostId"]))
+names(pom2) <- c("PostId", "DownVotes")
+x7<-merge(pom1, pom2, by.x="PostId", by.y = "PostId", all=TRUE)
+x7["DownVotes"][is.na(x7["DownVotes"])] <- 0
+x7["DownVotes"][is.na(x7["DownVotes"])] <- 0
+x7 <- x7[order(as.integer(levels(x7[,1]))),]
+x7[,2]<-x7[,2]-x7[,3]
+x7<-x7[,1:2]
+all(x7[ ,]==sql7[ ,])
+kable(x7[1:15,], format="latex", align="c")%>%
+kable_styling(latex_options = c("scale_down"))
+@
+\subsection{dplyr}
+<<>>=
+dp_pom <-filter(Votes, VoteTypeId == 2)
+dp_pom <-summarise(group_by(dp_pom, PostId) ,n = n())
+dp_pom <- select(dp_pom, PostId, UpVotes=n)
+dp_pom1 <-filter(Votes, VoteTypeId == 3)
+dp_pom1 <-summarise(group_by(dp_pom1, PostId) ,n = n())
+dp_pom1 <- select(dp_pom1, PostId, DownVotes=n)
+dp_pom6 <- full_join(dp_pom, dp_pom1, by=c("PostId"))
+dp_pom6["UpVotes"][is.na(dp_pom6["UpVotes"])] <- 0
+dp_pom6["DownVotes"][is.na(dp_pom6["DownVotes"])] <- 0
+dp7<-arrange(dp7, PostId)
+dp7<- bind_cols(select(dp7, PostId), 
+                select(dp7, UpVotes)-select(dp7, DownVotes))
+all(dp7[ ,]==sql7[ ,])
+@
+\subsection{data.table}
+<<>>=
+pom_dt <- Votest[VoteTypeId==2]
+pom_dt <- pom_dt[, .(UpVotes=.N), by = PostId]
+pom_dt1 <- Votest[VoteTypeId==3]
+pom_dt1 <- pom_dt1[, .(DownVotes=.N), by = PostId]
+dt7<-merge(pom_dt, pom_dt1, by.x="PostId", by.y = "PostId", all=TRUE)
+dt7[is.na(DownVotes), DownVotes:=0]
+dt7[is.na(UpVotes), UpVotes:=0]
+dt7 <- data.table(PostId = dt7[, PostId], 
+                  Votes = dt7[, UpVotes]-dt7[, DownVotes])
+dt7 <- dt7[order(PostId)]
+all(as.data.frame(dt7)[ ,]==sql7[ ,])
+@
+\subsection{microbenchmark}
+<<echo=FALSE>>=
+m<-microbenchmark::microbenchmark(
+sqldf={sql7<-sqldf("SELECT PostId, UpVotes-DownVotes AS Votes FROM (
+SELECT UpVotesTab.PostId, UpVotesTab.UpVotes, IFNULL(DownVotesTab.DownVotes, 0) AS DownVotes
+            FROM
+            (
+            SELECT PostId, COUNT(*) AS UpVotes FROM Votes
+            WHERE VoteTypeId=2 GROUP BY PostId
+            ) AS UpVotesTab
+            LEFT JOIN
+            (
+            SELECT PostId, COUNT(*) AS DownVotes
+            FROM Votes WHERE VoteTypeId=3 GROUP BY PostId
+            ) AS DownVotesTab
+            ON UpVotesTab.PostId=DownVotesTab.PostId
+            UNION
+            SELECT DownVotesTab.PostId, IFNULL(UpVotesTab.UpVotes, 0) AS UpVotes, DownVotesTab.DownVotes
+            FROM
+            (
+            SELECT PostId, COUNT(*) AS DownVotes FROM Votes
+            WHERE VoteTypeId=3 GROUP BY PostId
+            ) AS DownVotesTab
+            LEFT JOIN
+            (
+            SELECT PostId, COUNT(*) AS UpVotes FROM Votes
+            WHERE VoteTypeId=2 GROUP BY PostId
+            ) AS UpVotesTab
+            ON DownVotesTab.PostId=UpVotesTab.PostId)
+")},
+base={pom1 <- as.data.frame(table(Votes[Votes$VoteTypeId == 2, "PostId"]))
+names(pom1) <- c("PostId", "UpVotes")
+pom2 <- as.data.frame(table(Votes[Votes$VoteTypeId == 3, "PostId"]))
+names(pom2) <- c("PostId", "DownVotes")
+x7<-merge(pom1, pom2, by.x="PostId", by.y = "PostId", all=TRUE)
+x7["DownVotes"][is.na(x7["DownVotes"])] <- 0
+x7["DownVotes"][is.na(x7["DownVotes"])] <- 0
+x7 <- x7[order(as.integer(levels(x7[,1]))),]
+x7[,2]<-x7[,2]-x7[,3]
+x7<-x7[,1:2]},
+dplyr={dp_pom <-filter(Votes, VoteTypeId == 2)
+dp_pom <-summarise(group_by(dp_pom, PostId) ,n = n())
+dp_pom <- select(dp_pom, PostId, UpVotes=n)
+dp_pom1 <-filter(Votes, VoteTypeId == 3)
+dp_pom1 <-summarise(group_by(dp_pom1, PostId) ,n = n())
+dp_pom1 <- select(dp_pom1, PostId, DownVotes=n)
+dp_pom6 <- full_join(dp_pom, dp_pom1, by=c("PostId"))
+dp_pom6["UpVotes"][is.na(dp_pom6["UpVotes"])] <- 0
+dp_pom6["DownVotes"][is.na(dp_pom6["DownVotes"])] <- 0
+dp7<-arrange(dp7, PostId)
+dp7<- bind_cols(select(dp7, PostId), select(dp7, UpVotes)-select(dp7, DownVotes))},
+data.table={pom_dt <- Votest[VoteTypeId==2]
+pom_dt <- pom_dt[, .(UpVotes=.N), by = PostId]
+pom_dt1 <- Votest[VoteTypeId==3]
+pom_dt1 <- pom_dt1[, .(DownVotes=.N), by = PostId]
+dt7<-merge(pom_dt, pom_dt1, by.x="PostId", by.y = "PostId", all=TRUE)
+dt7[is.na(DownVotes), DownVotes:=0]
+dt7[is.na(UpVotes), UpVotes:=0]
+dt7 <- data.table(PostId = dt7[, PostId], Votes = dt7[, UpVotes]-dt7[, DownVotes])
+dt7 <- dt7[order(PostId)]}
+)
+print(m, signif=4)
+autoplot.microbenchmark(m)
+@
+\noindent
+Wyniki siê niemal niezmieni³y, ró¿nica pomiêdzy poszczególnymi pakietami jest bardzo podobna do tej z poprzedniego zadania.
+\section{Podsumowanie}
+Z analizy czasów przedstawionych rozwi¹zañ jasno wynika, ¿e pakiet \textbf{data.table} jest najszybszym z przedstawionych narzêdzi. W czêœci zadañ zdeklasowa³ rywali, lecz w niektórych przypadkach czu³ na plecach oddech pakiet \textbf{dplyr}. Te dwa rozwi¹zania wydaj¹ siê dziêki temu najbardziej sensowne gdy¿ czsy uzyskane przez funkcje bazowe jednak znacz¹co odstawa³y. Pakiet \textbf{sqldf} jest dobry dla osób, które na codzieñ korzystaj¹ z jêzyka \textbf{SQL} gdy¿ czasy przez niego uzysakne pokazuj¹ jak bardzo nie jest zoptymalizowany.
+
+
+\end{document}
+
+
